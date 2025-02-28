@@ -3,12 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/niean/mailsender/g"
-	"github.com/niean/mailsender/http"
-	"github.com/niean/mailsender/sender"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"github.com/dwdcth/mailsender/g"
+	"github.com/dwdcth/mailsender/http"
+	"github.com/dwdcth/mailsender/sender"
 )
 
 func main() {

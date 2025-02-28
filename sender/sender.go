@@ -1,23 +1,40 @@
 package sender
 
 import (
-	nsema "github.com/niean/gotools/concurrent/semaphore"
-	nlist "github.com/niean/gotools/container/list"
-	gomail "github.com/niean/mail/gomail"
-	"github.com/niean/mailsender/g"
-	"github.com/niean/mailsender/proc"
+	"context"
+	"fmt"
 	"log"
+	"net/smtp"
 	"time"
+
+	"github.com/dwdcth/mailsender/g"
+	"github.com/dwdcth/mailsender/proc"
+	"github.com/jordan-wright/email"
+	"golang.org/x/sync/semaphore"
 )
 
 var (
-	mailqueue *nlist.SafeListLimited
-	sendsema  *nsema.Semaphore
+	mailChan chan *MailObject
+	sem      *semaphore.Weighted
+	pool     *email.Pool
 )
 
 func Start() {
-	sendsema = nsema.NewSemaphore(g.GetConfig().Mail.SendConcurrent)
-	mailqueue = nlist.NewSafeListLimited(g.GetConfig().Mail.MaxQueueSize)
+	sem = semaphore.NewWeighted(int64(g.GetConfig().Mail.SendConcurrent))
+	mailChan = make(chan *MailObject, g.GetConfig().Mail.MaxQueueSize)
+
+	mcfg := g.GetConfig().Mail
+	var err error
+	auth := smtp.PlainAuth("", mcfg.MailServerAccount, mcfg.MailServerPasswd, mcfg.MailServerHost)
+	pool, err = email.NewPool(
+		fmt.Sprintf("%s:%d", mcfg.MailServerHost, mcfg.MailServerPort),
+		mcfg.SendConcurrent,
+		auth,
+	)
+	if err != nil {
+		log.Fatalf("Failed to create email pool: %v", err)
+	}
+
 	go startSender()
 }
 
@@ -30,49 +47,43 @@ func AddMail(r []string, subject string, content string, from ...string) bool {
 	}
 
 	nm := NewMailObject(r, subject, content, fromUserName)
-	return mailqueue.PushFront(nm)
+	select {
+	case mailChan <- nm:
+		return true
+	default:
+		return false
+	}
 }
 
 // sender cron
 func startSender() {
-	for {
-		raw := mailqueue.PopBack()
-		if raw == nil {
-			time.Sleep(time.Duration(10) * time.Millisecond)
+	ctx := context.Background()
+	for mail := range mailChan {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			log.Printf("Failed to acquire semaphore: %v", err)
 			continue
 		}
-		// control sending concurrents
-		sendsema.Acquire()
 		go func(mailObject *MailObject) {
-			defer sendsema.Release()
+			defer sem.Release(1)
 			sendMail(mailObject)
-		}(raw.(*MailObject))
+		}(mail)
 	}
 }
 
 func sendMail(mo *MailObject) {
 	mcfg := g.GetConfig().Mail
-	msg := gomail.NewMessage()
-	// from
-	msg.SetAddressHeader("From", mcfg.MailServerAccount, mo.FromUser)
-	// receivers
-	for i, to := range mo.Receivers {
-		if i == 0 {
-			msg.SetHeader("To", to)
-		} else {
-			msg.AddHeader("To", to)
-		}
+	e := &email.Email{
+		To:      mo.Receivers,
+		From:    fmt.Sprintf("%s <%s>", mo.FromUser, mcfg.MailServerAccount),
+		Subject: mo.Subject,
+		Text:    []byte(mo.Content),
 	}
-	// subject
-	msg.SetHeader("Subject", mo.Subject)
-	// content
-	msg.SetBody("text/plain", mo.Content)
 
 	// statistics
 	proc.MailSendCnt.Incr()
 
-	m := gomail.NewMailer(mcfg.MailServerHost, mcfg.MailServerAccount, mcfg.MailServerPasswd, mcfg.MailServerPort)
-	if err := m.Send(msg); err != nil {
+	err := pool.Send(e, 10*time.Second)
+	if err != nil {
 		// statistics
 		proc.MailSendErrCnt.Incr()
 		log.Println(err, ", mailObject:", mo)

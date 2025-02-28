@@ -2,14 +2,15 @@ package http
 
 import (
 	"fmt"
-	"github.com/niean/mailsender/proc"
-	"github.com/niean/mailsender/sender"
 	"net/http"
 	"strings"
+
+	"github.com/dwdcth/mailsender/proc"
+	"github.com/dwdcth/mailsender/sender"
 )
 
 func configMailSenderApiRoutes() {
-	http.HandleFunc("/mail/sender", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/mail/sender", AuthMiddleware(func(w http.ResponseWriter, req *http.Request) {
 		// statistics
 		proc.HttpRequestCnt.Incr()
 
@@ -49,5 +50,5 @@ func configMailSenderApiRoutes() {
 			return
 		}
 		RenderDataJson(w, "ok")
-	})
+	}))
 }

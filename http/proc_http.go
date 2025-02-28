@@ -1,8 +1,9 @@
 package http
 
 import (
-	"github.com/niean/mailsender/proc"
 	"net/http"
+
+	"github.com/dwdcth/mailsender/proc"
 )
 
 func configProcHttpRoutes() {

@@ -2,19 +2,31 @@ package g
 
 import (
 	"encoding/json"
-	"github.com/toolkits/file"
 	"log"
+	"os"
+	"strings"
 	"sync"
 )
+
+// IsExist checks whether a file or directory exists
+func isExist(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || os.IsExist(err)
+}
+
+// ReadFileAndTrim reads the file content and returns it as a trimmed string
+func readFileAndTrim(filename string) (string, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(content)), nil
+}
 
 type HttpConfig struct {
 	Enable bool   `json:"enable"`
 	Listen string `json:"listen"`
-}
-
-type RpcConfig struct {
-	Enable bool   `json:"enable"`
-	Listen string `json:"listen"`
+	Token  string `json:"token"`
 }
 
 type MailConfig struct {
@@ -31,7 +43,6 @@ type MailConfig struct {
 type GlobalConfig struct {
 	Debug bool        `json:"debug"`
 	Http  *HttpConfig `json:"http"`
-	Rpc   *RpcConfig  `json:"rpc"`
 	Mail  *MailConfig `json:"mail"`
 }
 
@@ -52,13 +63,13 @@ func LoadConfig(cfg string) {
 		log.Fatalln("use -c to specify configuration file")
 	}
 
-	if !file.IsExist(cfg) {
+	if !isExist(cfg) {
 		log.Fatalln("config file:", cfg, "is not existent. maybe you need `mv cfg.example.json cfg.json`")
 	}
 
 	ConfigFile = cfg
 
-	configContent, err := file.ToTrimString(cfg)
+	configContent, err := readFileAndTrim(cfg)
 	if err != nil {
 		log.Fatalln("read config file:", cfg, "fail:", err)
 	}

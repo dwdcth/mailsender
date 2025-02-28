@@ -2,10 +2,44 @@ package http
 
 import (
 	"encoding/json"
-	"github.com/niean/mailsender/g"
 	"log"
 	"net/http"
+	"strings"
+
+	"github.com/dwdcth/mailsender/g"
 )
+
+// AuthMiddleware 验证 Bearer Token
+func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := g.GetConfig().Http.Token
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			return
+		}
+
+		// 检查 Bearer token 格式
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
+			return
+		}
+
+		// 验证 token
+		if parts[1] != token {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
 
 func Start() {
 	go startHttpServer()
